@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SketchNova – Home</title>
+<style>
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:'Poppins',sans-serif;
+}
+body{
+height:100vh;
+background:linear-gradient(135deg,#1a1a2e,#3a0ca3,#7209b7);
+display:flex;
+align-items:center;
+justify-content:center;
+color:white;
+overflow:hidden;
+}
+.container{
+width:96%;
+max-width:1400px;
+height:96vh;
+background:rgba(255,255,255,0.08);
+border-radius:18px;
+padding:14px;
+backdrop-filter:blur(12px);
+box-shadow:0 0 30px rgba(0,0,0,0.45);
+display:flex;
+flex-direction:column;
+gap:14px;
+}
+.top-bar{
+display:flex;
+justify-content:space-between;
+align-items:center;
+background:rgba(0,0,0,0.35);
+padding:10px 18px;
+border-radius:14px;
+}
+.top-left{font-weight:600;font-size:1.15rem;}
+.top-right{display:flex;gap:18px;font-size:0.95rem;}
+.control-panel{
+position:absolute;
+top:15px;
+left:50%;
+transform:translateX(-50%);
+display:flex;
+gap:12px;
+z-index:20;
+}
+.control-btn{
+padding:10px;
+background:transparent;
+border:2px solid white;
+border-radius:10px;
+color:white;
+font-weight:600;
+cursor:pointer;
+transition:all 0.2s;
+}
+.control-btn.glow-active {
+    border-color: #00ff88;
+    box-shadow: 0 0 15px #00ff88, inset 0 0 10px #00ff88;
+    color: #00ff88;
+    background: rgba(0, 255, 136, 0.1);
+}
+.color-active {
+    outline: 3px solid #00ff88;
+    box-shadow: 0 0 10px #00ff88;
+}
+.control-btn.active{background:white;color:black;}
+.icon-area{flex:1;display:flex;gap:32px;}
+.card{
+flex:1;
+border-radius:28px;
+background:linear-gradient(135deg,#ff5f7e,#845ec2);
+box-shadow:0 20px 40px rgba(0,0,0,0.45);
+position:relative;
+overflow:hidden;
+}
+.canvas{background:#ffffff;}
+#drawCanvas,#skeletonCanvas{
+position:absolute;inset:0;width:100%;height:100%;
+}
+.text-output{
+height:90px;
+background:rgba(0,0,0,0.35);
+border-radius:16px;
+padding:10px 14px;
+display:flex;
+flex-direction:column;
+}
+.text-box{
+flex:1;
+background:rgba(255,255,255,0.15);
+border-radius:10px;
+padding:8px;
+font-size:1.2rem;
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="top-bar">
+        <div class="top-left">SketchNova</div>
+        <div class="top-right">
+            <div>Hand: <b id="handText">No</b></div>
+            <div>Mode: <b id="modeText">Idle</b></div>
+            <div>FPS: <b id="fpsText">0</b></div>
+        </div>
+    </div>
+    <div class="icon-area">
+        <div class="card">
+            <div class="control-panel">
+                <div id="colorMenu" style="
+                    display:none;position:absolute;top:60px;right:0;
+                    background:white;padding:8px;border-radius:10px;z-index:100;">
+                    <div onclick="selectColor('black')"  style="width:20px;height:20px;background:black; border-radius:50%;display:inline-block;margin:4px;"></div>
+                    <div onclick="selectColor('red')"    style="width:20px;height:20px;background:red;   border-radius:50%;display:inline-block;margin:4px;"></div>
+                    <div onclick="selectColor('green')"  style="width:20px;height:20px;background:green; border-radius:50%;display:inline-block;margin:4px;"></div>
+                    <div onclick="selectColor('blue')"   style="width:20px;height:20px;background:blue;  border-radius:50%;display:inline-block;margin:4px;"></div>
+                    <div onclick="selectColor('yellow')" style="width:20px;height:20px;background:yellow;border-radius:50%;display:inline-block;margin:4px;"></div>
+                </div>
+                <button id="btn-WRITE" class="control-btn glow-active" onclick="setMode('WRITE',this)">WRITE</button>
+                <button id="btn-DRAW"  class="control-btn"        onclick="setMode('DRAW',this)">DRAW</button>
+                <button class="control-btn"onclick="undo(this)">UNDO</button>
+                <button class="control-btn"onclick="backspace(this)">BACK</button>
+                <button class="control-btn"onclick="addSpace(this)">SPACE</button>
+                <button class="control-btn"onclick="openColorMenu(this)">COLOUR</button>
+            </div>
+            <video id="video" autoplay playsinline
+                style="position:absolute;inset:0;width:100%;height:100%;
+                       object-fit:cover;transform:scaleX(-1);border-radius:28px;">
+            </video>
+            <canvas id="skeletonCanvas"></canvas>
+        </div>
+        <div class="card canvas">
+            <canvas id="drawCanvas"></canvas>
+            <canvas id="cursorCanvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;"></canvas>
+        </div>
+    </div>
+    <div class="text-output">
+        <h3>Recognized Text Output</h3>
+        <div class="text-box">
+            <div id="row1"></div>
+            <div id="row2"></div>
+        </div>
+    </div>
+</div>
+<script>
+const ws= new WebSocket("ws://127.0.0.1:8000/ws");
+const video= document.getElementById("video");
+const drawCanvas= document.getElementById("drawCanvas");
+const ctx= drawCanvas.getContext("2d");
+const skeletonCanvas= document.getElementById("skeletonCanvas");
+const skelCtx= skeletonCanvas.getContext("2d");
+const cursorCanvas= document.getElementById("cursorCanvas");
+const curCtx= cursorCanvas.getContext("2d");
+let selectedMode= "WRITE";
+let selectedColor= "black";
+let sentence= "";
+let lastButtonTime= 0;
+
+let smoothX= null, smoothY = null;
+let p1= null, p2 = null;
+let strokes= [], currentStroke = [];
+let history= [];          
+let currentEraseStroke= [];
+let _currentOpIsErase= false;
+const SM_MIN= 0.12, SM_MAX = 0.45;
+let _prevRawX= null, _prevRawY = null;
+let latestLandmarks= null;
+let latestMode= "HOVER";
+let latestHandDetected= false;
+let _pendingFrame= false;
+let _prevMode= "HOVER";
+let _canvasSentThisGesture= false;
+function setMode(mode, btn) {
+    selectedMode = mode;
+    document.querySelectorAll(".control-btn").forEach(b => b.classList.remove("glow-active"));
+    btn.classList.add("glow-active");
+}
+
+function activateButton(btn) {
+    // Flash glow on action buttons (UNDO, BACK, etc.)
+    btn.classList.add("glow-active");
+    setTimeout(() => {
+        btn.classList.remove("glow-active");
+        if (selectedMode === "WRITE") document.getElementById("btn-WRITE").classList.add("glow-active");
+        if (selectedMode === "DRAW") document.getElementById("btn-DRAW").classList.add("glow-active");
+    }, 300);
+}
+function undo(btn) {
+    activateButton(btn);
+    history.pop();
+    strokes = history.filter(op => op.type === "draw").map(op => op.points);
+    redrawCanvas();
+}
+
+function backspace(btn) {
+    activateButton(btn);
+    sentence = sentence.slice(0, -1);
+    updateText();
+}
+
+function addSpace(btn) {
+    activateButton(btn);
+    sentence += " ";
+    updateText();
+}
+
+function openColorMenu(btn) {
+    activateButton(btn);
+    const menu = document.getElementById("colorMenu");
+    menu.style.display = "block";  
+}
+function redrawCanvas() {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+    for (let op of history) {
+        if (op.points.length < 2) continue;
+        if (op.type === "erase") {
+            ctx.globalCompositeOperation = "destination-out";
+            ctx.strokeStyle = "rgba(0,0,0,1)";
+            ctx.lineWidth   = 28;
+        } else {
+            ctx.globalCompositeOperation = "source-over";
+            ctx.strokeStyle = op.color || "black";
+            ctx.lineWidth   = 4;
+        }
+        ctx.beginPath();
+        ctx.moveTo(op.points[0].x, op.points[0].y);
+        for (let i = 1; i < op.points.length; i++)
+            ctx.lineTo(op.points[i].x, op.points[i].y);
+        ctx.lineCap  = "round";
+        ctx.lineJoin = "round";
+        ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-over";
+}
+function updateText() {
+    const MAX_CHARS_PER_LINE = 100; // Fits full width of text box
+    const lines = [];
+    
+    for (let i = 0; i < sentence.length; i += MAX_CHARS_PER_LINE) {
+        lines.push(sentence.substring(i, i + MAX_CHARS_PER_LINE));
+    }
+    
+    document.getElementById("row1").innerText = lines[0] || "";
+    document.getElementById("row2").innerText = lines[1] || "";
+}
+function selectColor(color) {
+    selectedColor = color;
+    ctx.strokeStyle = selectedColor;  
+    const colors = document.querySelectorAll("#colorMenu div");
+    colors.forEach(c => c.classList.remove("color-active"));
+    colors.forEach(c => {
+        if (c.style.background === color) {
+            c.classList.add("color-active");
+        }
+    });
+
+    document.getElementById("colorMenu").style.display = "none";
+}
+function getCanvasImage() {
+    const W = 400, H = 300;
+    const off = document.createElement("canvas");
+    off.width = W; off.height = H;
+    const offCtx = off.getContext("2d");
+    offCtx.fillStyle = "#ffffff";
+    offCtx.fillRect(0, 0, W, H);
+    offCtx.drawImage(drawCanvas, 0, 0, W, H);
+    return off.toDataURL("image/png");
+}
+function resize() {
+    const prevImg = (drawCanvas.width > 0 && drawCanvas.height > 0)
+        ? getCanvasImage() : null;
+    drawCanvas.width= drawCanvas.offsetWidth;
+    drawCanvas.height= drawCanvas.offsetHeight;
+    cursorCanvas.width= cursorCanvas.offsetWidth;
+    cursorCanvas.height= cursorCanvas.offsetHeight;
+    skeletonCanvas.width= skeletonCanvas.offsetWidth;
+    skeletonCanvas.height= skeletonCanvas.offsetHeight;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+    if (prevImg) {
+        const img= new Image();
+        img.onload= () => ctx.drawImage(img, 0, 0,
+            drawCanvas.width, drawCanvas.height);
+        img.src= prevImg;
+    }
+    ctx.strokeStyle= selectedColor;
+    ctx.lineWidth= 4;
+    ctx.lineCap= "round";
+    ctx.lineJoin= "round";
+}
+window.onload   = resize;
+window.onresize = resize;
+navigator.mediaDevices.getUserMedia({ video: true })
+    .then(stream => { video.srcObject = stream; });
+const _offscreen = document.createElement("canvas");
+_offscreen.width  = 320;
+_offscreen.height = 240;
+const _offCtx = _offscreen.getContext("2d");
+function sendCanvasToBackend() {
+    if (ws.readyState !== 1) return;
+    ws.send(JSON.stringify({
+        type:         "canvas",
+        canvas_image: getCanvasImage()
+    }));
+}
+let _lastSend = 0;
+const _SEND_INTERVAL = 50;
+function _sendFrame(ts) {
+    requestAnimationFrame(_sendFrame);
+    if (ts - _lastSend < _SEND_INTERVAL) return;
+    if (ws.readyState !== 1) return;
+    if (video.readyState < 2) return;
+    if (_pendingFrame) return;
+    if (latestMode === "PREDICT" && _prevMode !== "PREDICT") {
+        if (!_canvasSentThisGesture) {
+            sendCanvasToBackend();
+            _canvasSentThisGesture = true;
+        }
+    }
+    if (latestMode !== "PREDICT") {
+        _canvasSentThisGesture = false;
+    }
+    _prevMode = latestMode;
+
+    _lastSend     = ts;
+    _pendingFrame = true;
+
+    _offCtx.drawImage(video, 0, 0, 320, 240);
+    ws.send(JSON.stringify({
+        type:          "frame",
+        image:         _offscreen.toDataURL("image/jpeg", 0.6),
+        selected_mode: selectedMode
+    }));
+}
+requestAnimationFrame(_sendFrame);
+ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.type === "canvas_ack") return;
+    _pendingFrame = false;
+
+    document.getElementById("handText").innerText = data.hand_detected ? "Detected" : "No";
+    const uiMode = selectedMode.toUpperCase();
+document.getElementById("modeText").innerText = (data.mode === uiMode) ? uiMode : data.mode;
+    document.getElementById("fpsText").innerText  = data.fps;
+    latestMode= data.mode;
+    latestHandDetected = data.hand_detected;
+    latestLandmarks = data.landmarks || null;
+    if (data.prediction === "CLEAR_UI") {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+        curCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+        strokes = []; currentStroke = [];
+        history = []; currentEraseStroke = [];
+        smoothX = null; smoothY = null;
+        p1 = null; p2 = null;
+        latestLandmarks = null;
+        _canvasSentThisGesture = false;
+        return;
+    }
+    if (data.prediction && data.prediction !== "" && data.prediction !== "PREDICT_FAIL") {
+        sentence += data.prediction;
+        updateText();
+        return;
+    }
+};
+
+ws.onclose = () => {
+    document.getElementById("modeText").innerText = "Disconnected";
+};
+function renderLoop() {
+    requestAnimationFrame(renderLoop);
+    skelCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
+    if (latestLandmarks && latestLandmarks.length > 0) {
+        const pts = latestLandmarks.map(p => ({
+            x: p.x * skeletonCanvas.width,
+            y: p.y * skeletonCanvas.height
+        }));
+        const connections = [
+            [0,1],[1,2],[2,3],[3,4],
+            [0,5],[5,6],[6,7],[7,8],
+            [5,9],[9,10],[10,11],[11,12],
+            [9,13],[13,14],[14,15],[15,16],
+            [13,17],[17,18],[18,19],[19,20],
+            [0,17]
+        ];
+        const skelColor = latestMode=== "DRAW" ? "#00ff88"
+                        : latestMode=== "PREDICT" ? "#00ffcc"
+                        : latestMode=== "ERASE" ? "#ff8800"
+                        : latestMode=== "CLEAR" ? "#ff4444"
+                        : "#00ffff";
+        skelCtx.strokeStyle = skelColor;
+        skelCtx.lineWidth   = 3;
+        skelCtx.beginPath();
+        connections.forEach(([a, b]) => {
+            skelCtx.moveTo(pts[a].x, pts[a].y);
+            skelCtx.lineTo(pts[b].x, pts[b].y);
+        });
+        skelCtx.stroke();
+        pts.forEach(p => {
+            skelCtx.beginPath();
+            skelCtx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+            skelCtx.fillStyle = skelColor;
+            skelCtx.fill();
+        });
+
+        if (pts.length > 8) {
+            const tip = pts[8];
+            const isDrawing = latestMode === "DRAW";
+            const dotColor  = isDrawing ? "#00ff00" : "#ff3333";
+            skelCtx.beginPath();
+            skelCtx.arc(tip.x, tip.y, 7, 0, Math.PI * 2);
+            skelCtx.fillStyle = dotColor;
+            skelCtx.fill();
+            skelCtx.strokeStyle = "white";
+            skelCtx.lineWidth= 2;
+            skelCtx.stroke();
+        }
+    }
+    curCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+    if (latestLandmarks && latestLandmarks.length > 8) {
+        const tip= latestLandmarks[8];
+        const drawX= tip.x * drawCanvas.width;
+        const drawY= tip.y * drawCanvas.height;
+        const isDrawing= latestMode === "DRAW";
+        curCtx.beginPath();
+        curCtx.arc(drawX, drawY, 7, 0, Math.PI * 2);
+        curCtx.fillStyle= isDrawing ? "#00ff00" : "#ff3333";
+        curCtx.fill();
+        curCtx.strokeStyle= isDrawing ? "#007700" : "#880000";
+        curCtx.lineWidth= 2;
+        curCtx.stroke();
+    }
+    if (latestLandmarks && latestLandmarks.length > 8) {
+        const tip8= latestLandmarks[8];
+        const tipX= tip8.x * skeletonCanvas.width;
+        const tipY= tip8.y * skeletonCanvas.height;
+	const colorMenu= document.getElementById("colorMenu");
+	if (colorMenu.style.display=== "block") {
+    		for (let c of colorMenu.children) {
+        		const rect = c.getBoundingClientRect();
+        		const cr = skeletonCanvas.getBoundingClientRect();
+        		if (tipX > rect.left-cr.left && tipX < rect.right-cr.left && tipY > rect.top-cr.top   && tipY < rect.bottom-cr.top) {
+            			const now = Date.now();
+            			if (now - lastButtonTime < 700) continue;
+            			lastButtonTime = now;
+            			selectColor(c.getAttribute("onclick").match(/'(.+?)'/)[1]);
+        		}
+    		}
+	}
+        const buttons = document.querySelectorAll(".control-btn");
+        let overButton = false;
+        buttons.forEach((btn, i) => {
+            const rect = btn.getBoundingClientRect();
+            const cr   = skeletonCanvas.getBoundingClientRect();
+            if (tipX > rect.left-cr.left && tipX < rect.right-cr.left &&
+                tipY > rect.top-cr.top   && tipY < rect.bottom-cr.top) {
+                overButton = true;
+                const now = Date.now();
+                if (now - lastButtonTime < 700) return;
+                lastButtonTime = now;
+                if (i===0) setMode("WRITE", btn);
+                if (i===1) setMode("DRAW",  btn);
+                if (i===2) undo(btn);
+                if (i===3) backspace(btn);
+                if (i===4) addSpace(btn);
+                if (i===5) openColorMenu(btn);
+            }
+        });
+        const buttonBarBottom = 100;
+        const drawX = tip8.x * drawCanvas.width;
+        const drawY = tip8.y * drawCanvas.height;
+        if ((latestMode === "DRAW" || latestMode === "ERASE")
+              && tipY > buttonBarBottom && !overButton) {
+            const isErase = latestMode === "ERASE";
+            if (smoothX === null) {
+                smoothX = drawX; smoothY = drawY;
+                p1 = { x: drawX, y: drawY };
+                p2 = { x: drawX, y: drawY };
+                _prevRawX = drawX; _prevRawY = drawY;
+                _currentOpIsErase = isErase;
+                if (isErase) currentEraseStroke = [{ x: drawX, y: drawY }];
+                else currentStroke = [{ x: drawX, y: drawY }];
+            } else {
+                const rawDist = Math.hypot(drawX - (_prevRawX || drawX), drawY - (_prevRawY || drawY));
+                const SM = Math.min(SM_MIN + rawDist * 0.003, SM_MAX);
+                _prevRawX = drawX; _prevRawY = drawY;
+                smoothX += SM * (drawX - smoothX);
+                smoothY += SM * (drawY - smoothY);
+                const currentPt = { x: smoothX, y: smoothY };
+                const midPoint  = { x: p1.x + (currentPt.x - p1.x) / 2, y: p1.y + (currentPt.y - p1.y) / 2 };
+                ctx.beginPath();
+                ctx.moveTo(p2.x, p2.y);
+                ctx.quadraticCurveTo(p1.x, p1.y, midPoint.x, midPoint.y);
+                if (isErase) {
+                    ctx.globalCompositeOperation = "destination-out";
+                    ctx.strokeStyle = "rgba(0,0,0,1)";
+                    ctx.lineWidth = 28;
+                    currentEraseStroke.push(currentPt);
+                } else {
+                    ctx.globalCompositeOperation = "source-over";
+                    ctx.strokeStyle = selectedColor;
+                    ctx.lineWidth = 4;
+                    currentStroke.push(currentPt);
+                }
+                ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.stroke();
+                ctx.globalCompositeOperation = "source-over";
+                p1 = currentPt; p2 = midPoint;
+            }
+        } else {
+            if (_currentOpIsErase && currentEraseStroke.length > 0) { history.push({ type: "erase", points: currentEraseStroke }); currentEraseStroke = []; }
+            else if (currentStroke.length > 0) { history.push({ type: "draw", points: currentStroke, color: selectedColor }); currentStroke = []; }
+            smoothX = null; p1 = null; p2 = null; _prevRawX = null; _prevRawY = null; _currentOpIsErase = false;
+        }
+    }
+}
+requestAnimationFrame(renderLoop);
+</script>
+</body>
+</html>
